@@ -90,6 +90,7 @@ public class SpeechToTextPlugin: NSObject, FlutterPlugin {
   #if os(iOS)
     private var rememberedAudioCategory: AVAudioSession.Category?
     private var rememberedAudioCategoryOptions: AVAudioSession.CategoryOptions?
+    private var rememberedAudioMode: AVAudioSession.Mode?
     private let audioSession = AVAudioSession.sharedInstance()
   #endif
 
@@ -450,23 +451,28 @@ public class SpeechToTextPlugin: NSObject, FlutterPlugin {
         "Error removing trap: %{PUBLIC}@", log: pluginLog, type: .error, error.localizedDescription)
     }
     #if os(iOS)
-      do {
-        if let rememberedAudioCategory = rememberedAudioCategory,
-          let rememberedAudioCategoryOptions = rememberedAudioCategoryOptions
-        {
-          try self.audioSession.setCategory(
-            rememberedAudioCategory, options: rememberedAudioCategoryOptions)
-        }
-      } catch {
-        os_log(
-          "Error stopping listen: %{PUBLIC}@", log: pluginLog, type: .error,
-          error.localizedDescription)
-      }
+      // Release the session BEFORE restoring the category. Restoring it
+      // while still active was seen (in audiomxd logs) to interrupt other
+      // apps' audio, e.g. a music player; once that player resumed, the
+      // app's own speech in the background stayed held behind it.
       do {
         try self.audioSession.setActive(false, options: .notifyOthersOnDeactivation)
       } catch {
         os_log(
           "Error deactivation: %{PUBLIC}@", log: pluginLog, type: .info, error.localizedDescription)
+      }
+      do {
+        if let rememberedAudioCategory = rememberedAudioCategory,
+          let rememberedAudioCategoryOptions = rememberedAudioCategoryOptions
+        {
+          try self.audioSession.setCategory(
+            rememberedAudioCategory, mode: rememberedAudioMode ?? .default,
+            options: rememberedAudioCategoryOptions)
+        }
+      } catch {
+        os_log(
+          "Error stopping listen: %{PUBLIC}@", log: pluginLog, type: .error,
+          error.localizedDescription)
       }
 
     #endif
@@ -517,6 +523,7 @@ public class SpeechToTextPlugin: NSObject, FlutterPlugin {
       #if os(iOS)
         rememberedAudioCategory = self.audioSession.category
         rememberedAudioCategoryOptions = self.audioSession.categoryOptions
+        rememberedAudioMode = self.audioSession.mode
         try self.audioSession.setCategory(
           AVAudioSession.Category.playAndRecord,
           options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP, .mixWithOthers])
