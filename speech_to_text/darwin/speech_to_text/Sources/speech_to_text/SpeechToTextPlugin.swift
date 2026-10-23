@@ -92,6 +92,12 @@ public class SpeechToTextPlugin: NSObject, FlutterPlugin {
     private var rememberedAudioCategoryOptions: AVAudioSession.CategoryOptions?
     private var rememberedAudioMode: AVAudioSession.Mode?
     private let audioSession = AVAudioSession.sharedInstance()
+    /// This listen configured and activated the session itself, so it
+    /// releases it and restores the category when it ends. When the app
+    /// already holds the session in playAndRecord (e.g. to speak and listen
+    /// in one conversation), it is used as is and left as is: changing the
+    /// category or deactivating it interrupts other apps' audio.
+    private var ownsAudioSession = false
   #endif
 
   private var previousLocale: Locale?
@@ -451,6 +457,8 @@ public class SpeechToTextPlugin: NSObject, FlutterPlugin {
         "Error removing trap: %{PUBLIC}@", log: pluginLog, type: .error, error.localizedDescription)
     }
     #if os(iOS)
+    if ownsAudioSession {
+      ownsAudioSession = false
       // Release the session BEFORE restoring the category. Restoring it
       // while still active was seen (in audiomxd logs) to interrupt other
       // apps' audio, e.g. a music player; once that player resumed, the
@@ -474,7 +482,7 @@ public class SpeechToTextPlugin: NSObject, FlutterPlugin {
           "Error stopping listen: %{PUBLIC}@", log: pluginLog, type: .error,
           error.localizedDescription)
       }
-
+    }
     #endif
     self.invokeFlutter(
       SwiftSpeechToTextCallbackMethods.notifyStatus, arguments: SpeechToTextStatus.done.rawValue)
@@ -521,6 +529,10 @@ public class SpeechToTextPlugin: NSObject, FlutterPlugin {
       }
 
       #if os(iOS)
+      if self.audioSession.category == .playAndRecord {
+        ownsAudioSession = false
+      } else {
+        ownsAudioSession = true
         rememberedAudioCategory = self.audioSession.category
         rememberedAudioCategoryOptions = self.audioSession.categoryOptions
         rememberedAudioMode = self.audioSession.mode
@@ -533,6 +545,7 @@ public class SpeechToTextPlugin: NSObject, FlutterPlugin {
         }
         try self.audioSession.setMode(AVAudioSession.Mode.default)
         try self.audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+      }
         if #available(iOS 13.0, *) {
           try self.audioSession.setAllowHapticsAndSystemSoundsDuringRecording(enableHaptics)
         }
